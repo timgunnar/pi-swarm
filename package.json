@@ -1,0 +1,16 @@
+{
+  "name": "pi-swarm",
+  "version": "0.0.1",
+  "description": "Raspberry Pi cluster management system",
+  "license": "MIT",
+  "author": "timgunnar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timgunnar/pi-swarm.git"
+  },
+  "homepage": "https://github.com/timgunnar/pi-swarm#readme",
+  "files": [
+    "README.md",
+    "LICENSE"
+  ]
+}
