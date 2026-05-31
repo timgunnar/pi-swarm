@@ -3410,6 +3410,455 @@ git commit -m "docs: add architecture guide and inference benchmark script"
 
 ---
 
+## Phase 2: Iteration 8 — Agent 分布式执行引擎 (Scatter/Gather)
+
+> **优先级**: P2 — 在 Phase 1 基础功能稳定后实施
+
+### Task 8.1: Agent 引擎核心 (Scatter/Map/Reduce)
+
+**Files:**
+- Create: `backend/app/agent/__init__.py`
+- Create: `backend/app/agent/scatter.py`
+- Create: `backend/app/agent/executor.py`
+- Create: `backend/app/agent/reducer.py`
+- Create: `backend/app/schemas/agent.py`
+- Create: `backend/app/api/v1/agent.py`
+- Modify: `cli/pi_cli/commands/agent.py`
+- Modify: `cli/pi_cli/client.py` (add agent methods)
+
+- [ ] **Step 1: 创建 backend/app/schemas/agent.py**
+
+```python
+"""Agent 分布式执行 schemas."""
+
+from pydantic import BaseModel, Field
+
+
+class SubTask(BaseModel):
+    """Scatter 输出的子任务."""
+    id: str
+    prompt: str
+    context: str = ""  # 额外上下文
+    estimated_tokens: int = 0
+
+
+class AgentRunRequest(BaseModel):
+    """一站式 Scatter → Map → Reduce 请求."""
+    task: str = Field(..., description="完整任务描述")
+    workers: int = Field(default=0, description="使用的 Pi 节点数，0=全部可用")
+    model: str = Field(default="qwen2.5:7b")
+    strategy: str = Field(default="round_robin")  # round_robin | least_connection
+
+class AgentJobStatus(BaseModel):
+    """分布式任务执行状态."""
+    job_id: str
+    status: str  # pending | scattering | running | reducing | done | failed
+    total_subtasks: int = 0
+    completed_subtasks: int = 0
+    results: list[dict] = Field(default_factory=list)
+    final_output: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+
+
+class AgentScatterResponse(BaseModel):
+    job_id: str
+    subtasks: list[SubTask]
+    assigned_nodes: list[str]
+```
+
+- [ ] **Step 2: 创建 backend/app/agent/scatter.py**
+
+```python
+"""Scatter — 将大任务拆分为独立子任务."""
+
+import uuid
+from app.schemas.agent import SubTask
+
+
+class TaskScatterer:
+    """任务拆分器。
+    
+    策略:
+    1. 文件级拆分 — 按文件列表均分
+    2. 语义拆分 — 用 LLM 判断如何分割（更智能但需要一次 LLM 调用）
+    3. 简单规则 — 按分隔符/编号拆分
+    """
+
+    async def scatter(
+        self, task: str, n_workers: int, context: str = ""
+    ) -> list[SubTask]:
+        """拆分主任务为 n 个子任务."""
+        # 策略1: 检测是否包含文件列表
+        if "文件" in task or "目录" in task or ".py" in task or ".ts" in task:
+            return await self._file_based_split(task, n_workers, context)
+        # 策略2: 通用语义拆分
+        return await self._llm_split(task, n_workers, context)
+
+    async def _file_based_split(
+        self, task: str, n_workers: int, context: str
+    ) -> list[SubTask]:
+        """按文件分桶拆分."""
+        import glob, os
+
+        # 从 task 中提取路径模式
+        # 简单实现: 解析 task 中的文件路径
+        files = []
+        for word in task.split():
+            if "*" in word or "." in word:
+                matches = glob.glob(word, recursive=True)
+                files.extend(matches)
+
+        if not files:
+            return await self._llm_split(task, n_workers, context)
+
+        # 均分文件到 n_workers 组
+        chunk_size = max(1, len(files) // n_workers)
+        subtasks = []
+        for i in range(n_workers):
+            chunk = files[i * chunk_size : (i + 1) * chunk_size]
+            if not chunk:
+                break
+            subtasks.append(SubTask(
+                id=str(uuid.uuid4())[:8],
+                prompt=f"{task}\n\n只处理以下文件:\n" + "\n".join(chunk),
+                estimated_tokens=len(chunk) * 500,
+            ))
+        return subtasks
+
+    async def _llm_split(
+        self, task: str, n_workers: int, context: str
+    ) -> list[SubTask]:
+        """用 LLM 语义拆分 —— 适用于非文件类的通用任务."""
+        # 生成 n_workers 个独立视角的子任务
+        perspectives = [
+            f"从第{i+1}个角度分析: {task}" for i in range(n_workers)
+        ]
+        return [
+            SubTask(
+                id=str(uuid.uuid4())[:8],
+                prompt=p,
+                estimated_tokens=500,
+            )
+            for p in perspectives
+        ]
+```
+
+- [ ] **Step 3: 创建 backend/app/agent/executor.py**
+
+```python
+"""Map — 并行分发子任务到多个 Pi 并收集结果."""
+
+import asyncio
+from app.k8s.client import K8sClient
+from app.engines.ollama import OllamaEngine
+from app.core.scheduler import NodeInfo, get_strategy
+from app.schemas.agent import SubTask
+
+
+class MapExecutor:
+    """并行执行器."""
+
+    def __init__(self, k8s: K8sClient):
+        self.k8s = k8s
+        self.engine = OllamaEngine()
+
+    async def _get_nodes(self) -> list[NodeInfo]:
+        nodes = self.k8s.list_nodes()
+        return [
+            NodeInfo(
+                name=n["name"],
+                host=n["name"],
+                is_ready=n["status"] == "online",
+            )
+            for n in nodes
+            if n.get("labels", {}).get("pi-role") == "inference"
+        ]
+
+    async def execute(
+        self,
+        subtasks: list[SubTask],
+        model: str,
+        strategy_name: str = "round_robin",
+    ) -> list[dict]:
+        """并行执行所有子任务，分发到不同 Pi."""
+        nodes = await self._get_nodes()
+        strategy = get_strategy(strategy_name)
+
+        async def run_one(st: SubTask) -> dict:
+            node = await strategy.select_node(model, nodes)
+            if not node:
+                return {"subtask_id": st.id, "error": "No available node"}
+            try:
+                result = await self.engine.infer(
+                    node.host,
+                    model,
+                    [{"role": "user", "content": st.prompt}],
+                )
+                return {
+                    "subtask_id": st.id,
+                    "node": node.name,
+                    "output": result["message"].get("content", ""),
+                    "eval_count": result.get("eval_count", 0),
+                }
+            except Exception as e:
+                return {"subtask_id": st.id, "node": node.name, "error": str(e)}
+
+        results = await asyncio.gather(
+            *[run_one(st) for st in subtasks], return_exceptions=True
+        )
+        return [
+            r if not isinstance(r, Exception) else {"error": str(r)}
+            for r in results
+        ]
+```
+
+- [ ] **Step 4: 创建 backend/app/agent/reducer.py**
+
+```python
+"""Reduce — 聚合子任务结果."""
+
+
+class ResultReducer:
+    """结果聚合器."""
+
+    async def reduce(self, results: list[dict], task: str) -> str:
+        """合并所有子任务结果."""
+        successful = [r for r in results if "output" in r and "error" not in r]
+        failed = [r for r in results if "error" in r]
+
+        parts = []
+        parts.append(f"## 分布式执行结果\n")
+        parts.append(f"总子任务: {len(results)} | 成功: {len(successful)} | 失败: {len(failed)}\n")
+
+        for i, r in enumerate(successful, 1):
+            node = r.get("node", "unknown")
+            parts.append(f"### 子任务 {i} (节点: {node})\n")
+            parts.append(r["output"])
+            parts.append("\n---\n")
+
+        if failed:
+            parts.append("### 失败子任务\n")
+            for r in failed:
+                parts.append(f"- {r.get('subtask_id', '?')}: {r.get('error', 'unknown')}\n")
+
+        return "\n".join(parts)
+```
+
+- [ ] **Step 5: 创建 backend/app/api/v1/agent.py**
+
+```python
+"""Agent 分布式执行 API 端点."""
+
+import uuid
+import asyncio
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from app.k8s.client import K8sClient
+from app.agent.scatter import TaskScatterer
+from app.agent.executor import MapExecutor
+from app.agent.reducer import ResultReducer
+from app.schemas.agent import (
+    AgentRunRequest,
+    AgentJobStatus,
+    AgentScatterResponse,
+)
+
+router = APIRouter(prefix="/agent", tags=["agent"])
+
+# 内存中的 job 状态 (后续迁移到数据库)
+_jobs: dict[str, AgentJobStatus] = {}
+
+
+@router.post("/run", response_model=AgentJobStatus)
+async def agent_run(
+    req: AgentRunRequest,
+    background_tasks: BackgroundTasks,
+):
+    """一站式 Scatter → Map → Reduce."""
+    job_id = str(uuid.uuid4())[:8]
+    k8s = K8sClient()
+
+    job = AgentJobStatus(
+        job_id=job_id,
+        status="scattering",
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )
+    _jobs[job_id] = job
+
+    async def execute_pipeline():
+        try:
+            # 1. Scatter
+            job.status = "scattering"
+            scatterer = TaskScatterer()
+            nodes = k8s.list_nodes()
+            inference_nodes = [
+                n for n in nodes
+                if n.get("labels", {}).get("pi-role") == "inference"
+                and n["status"] == "online"
+            ]
+            n_workers = req.workers or len(inference_nodes)
+            subtasks = await scatterer.scatter(req.task, max(1, n_workers))
+
+            job.total_subtasks = len(subtasks)
+
+            # 2. Map
+            job.status = "running"
+            executor = MapExecutor(k8s)
+            results = await executor.execute(subtasks, req.model, req.strategy)
+            job.completed_subtasks = len([r for r in results if "error" not in r])
+            job.results = results
+
+            # 3. Reduce
+            job.status = "reducing"
+            reducer = ResultReducer()
+            final = await reducer.reduce(results, req.task)
+            job.final_output = final
+            job.status = "done"
+        except Exception as e:
+            job.status = "failed"
+            job.final_output = str(e)
+        finally:
+            job.finished_at = datetime.now(timezone.utc).isoformat()
+
+    background_tasks.add_task(execute_pipeline)
+    return job
+
+
+@router.get("/jobs/{job_id}", response_model=AgentJobStatus)
+async def get_job(job_id: str):
+    """查询分布式任务执行状态."""
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _jobs[job_id]
+
+
+@router.post("/scatter", response_model=AgentScatterResponse)
+async def scatter_task(req: AgentRunRequest):
+    """仅拆分任务，返回子任务列表和分配节点(不执行)."""
+    k8s = K8sClient()
+    nodes = k8s.list_nodes()
+    inference_nodes = [
+        n["name"] for n in nodes
+        if n.get("labels", {}).get("pi-role") == "inference"
+        and n["status"] == "online"
+    ]
+    n_workers = req.workers or len(inference_nodes)
+
+    scatterer = TaskScatterer()
+    subtasks = await scatterer.scatter(req.task, max(1, n_workers))
+    assigned = inference_nodes[:len(subtasks)]
+
+    return AgentScatterResponse(
+        job_id=str(uuid.uuid4())[:8],
+        subtasks=subtasks,
+        assigned_nodes=assigned,
+    )
+```
+
+- [ ] **Step 6: 注册 agent router 到 main.py**
+
+```python
+# 在 backend/app/main.py 中添加:
+from app.api.v1 import agent
+app.include_router(agent.router, prefix="/api/v1")
+```
+
+- [ ] **Step 7: 创建 CLI agent 命令**
+
+```python
+# cli/pi_cli/commands/agent.py
+import typer
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
+import time
+from pi_cli.client import APIClient
+
+app = typer.Typer(help="Agent 分布式执行", no_args_is_help=True)
+console = Console()
+
+
+@app.command("run")
+def agent_run(
+    task: str = typer.Option(..., "--task", "-t", help="任务描述"),
+    workers: int = typer.Option(0, "--workers", "-w", help="使用的 Pi 节点数，0=全部"),
+    model: str = typer.Option("qwen2.5:7b", "--model", "-m"),
+):
+    """一站式 Scatter → Map → Reduce 分布式执行."""
+    client = APIClient()
+
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task_id = progress.add_task("[cyan]分发任务到 Pi 集群...", total=None)
+        result = client.agent_run(task, workers, model)
+        progress.update(task_id, description=f"[cyan]Job: {result['job_id']} — 等待完成...")
+
+        # 轮询直到完成
+        while True:
+            job = client.agent_job_status(result["job_id"])
+            if job["status"] in ("done", "failed"):
+                break
+            time.sleep(1)
+
+    console.print(f"\n[bold]=== 执行结果 (Job: {job['job_id']}) ===[/bold]")
+    console.print(f"状态: [{'green' if job['status'] == 'done' else 'red'}]{job['status']}[/]")
+    console.print(f"子任务: {job['completed_subtasks']}/{job['total_subtasks']} 成功")
+
+    table = Table(title="子任务详情")
+    table.add_column("ID")
+    table.add_column("节点")
+    table.add_column("输出长度")
+    table.add_column("状态")
+    for r in job.get("results", []):
+        status = "✓" if "error" not in r else "✗"
+        table.add_row(
+            r.get("subtask_id", ""),
+            r.get("node", ""),
+            str(len(r.get("output", ""))),
+            status,
+        )
+    console.print(table)
+
+    if job.get("final_output"):
+        console.print("\n[bold cyan]=== 聚合结果 ===[/bold cyan]")
+        console.print(job["final_output"][:2000])  # 截断长输出
+```
+
+```python
+# 在 cli/pi_cli/client.py 中添加:
+def agent_run(self, task: str, workers: int = 0, model: str = "qwen2.5:7b") -> dict:
+    r = self.client.post(
+        "/agent/run",
+        json={"task": task, "workers": workers, "model": model},
+        timeout=600.0,
+    )
+    r.raise_for_status()
+    return r.json()
+
+def agent_job_status(self, job_id: str) -> dict:
+    r = self.client.get(f"/agent/jobs/{job_id}")
+    r.raise_for_status()
+    return r.json()
+```
+
+```python
+# 在 cli/pi_cli/main.py 中添加:
+from pi_cli.commands import agent
+app.add_typer(agent.app, name="agent", help="Agent 分布式执行")
+```
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add backend/app/agent/ backend/app/schemas/agent.py backend/app/api/v1/agent.py cli/pi_cli/commands/agent.py
+git commit -m "feat(agent): add Scatter/Gather distributed agent execution engine"
+```
+
+---
+
 ## 验证清单
 
 在每次迭代结束时，确认以下检查点:
