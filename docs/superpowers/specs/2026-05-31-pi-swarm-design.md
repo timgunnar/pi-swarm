@@ -1,10 +1,10 @@
-# Pi Cluster LLM — 分布式推理集群管理系统 · 设计文档
+# pi-swarm — 分布式推理集群管理系统 · 设计文档
 
-> **版本**: v2.1  
+> **版本**: v2.2  
 > **日期**: 2026-05-31  
 > **状态**: 待评审  
-> **变更**: v2.1 — 新增 Agent 分布式执行引擎 (Scatter/Gather)，支持子任务并行分发到多 Pi  
-> v2.0 — 架构调整为控制面/数据面分离，PC 作为管理节点，Pi 作为同构 Agent 节点
+> **变更**: v2.2 — 项目正式命名为 pi-swarm  
+> v2.1 — 新增 Agent 分布式执行引擎 (Scatter/Gather)
 
 ---
 
@@ -211,7 +211,7 @@ Frontend (Vue 3) → Backend API → K3s API / Prometheus
 ## 4. 仓库结构 (Monorepo)
 
 ```
-pi-cluster-llm/
+pi-swarm-llm/
 ├── ansible/                    # Ansible Playbooks — Pi 节点初始化
 │   ├── inventory/
 │   │   └── hosts.yml           # Pi 节点清单

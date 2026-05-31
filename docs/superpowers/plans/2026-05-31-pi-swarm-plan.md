@@ -1,4 +1,4 @@
-# Pi Cluster LLM 实施计划
+# pi-swarm 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+ / FastAPI / Vue 3 + TypeScript + Vite / K3s / Ollama / Ansible / Prometheus + Grafana + Loki / SQLAlchemy + SQLite
 
-**Design Doc:** `docs/superpowers/specs/2026-05-31-pi-cluster-llm-design.md`
+**Design Doc:** `docs/superpowers/specs/2026-05-31-pi-swarm-llm-design.md`
 
 ---
 
@@ -29,7 +29,7 @@
 ## 文件结构
 
 ```
-pi-cluster-llm/
+pi-swarm-llm/
 ├── ansible/
 │   ├── inventory/hosts.yml
 │   ├── playbooks/
@@ -194,7 +194,7 @@ k3s-apply:
 
 k3s-status:
 	kubectl get nodes -o wide
-	kubectl get pods -n pi-cluster -o wide
+	kubectl get pods -n pi-swarm -o wide
 ```
 
 - [ ] **Step 3: 创建 .gitignore**
@@ -236,7 +236,7 @@ kubeconfig.*
 - [ ] **Step 4: 创建 README.md 项目简介**
 
 ```markdown
-# Pi Cluster LLM
+# pi-swarm
 
 树莓派集群分布式大模型推理管理系统。
 
@@ -253,7 +253,7 @@ kubeconfig.*
 - [ ] **Step 5: 初始化 Git 并提交**
 
 ```bash
-cd e:/develop/pi-cluster-llm__developing
+cd e:/develop/pi-swarm-llm__developing
 git init
 git add pyproject.toml Makefile README.md .gitignore
 git commit -m "chore: init project scaffold with workspace config"
@@ -276,7 +276,7 @@ git commit -m "chore: init project scaffold with workspace config"
 
 ```toml
 [project]
-name = "pi-cluster-backend"
+name = "pi-swarm-backend"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -319,11 +319,11 @@ class Settings(BaseSettings):
     )
 
     # 应用
-    app_name: str = "Pi Cluster LLM"
+    app_name: str = "pi-swarm"
     debug: bool = False
 
     # 数据库 (SQLite 起步)
-    database_url: str = f"sqlite+aiosqlite:///{Path(__file__).parent.parent.parent / 'data' / 'pi_cluster.db'}"
+    database_url: str = f"sqlite+aiosqlite:///{Path(__file__).parent.parent.parent / 'data' / 'pi_swarm.db'}"
 
     # K3s
     k3s_kubeconfig: str = str(Path.home() / ".kube" / "config")
@@ -342,7 +342,7 @@ settings = Settings()
 - [ ] **Step 3: 创建 backend/app/main.py — FastAPI 应用入口**
 
 ```python
-"""Pi Cluster LLM — FastAPI 管理平台入口."""
+"""pi-swarm — FastAPI 管理平台入口."""
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -441,7 +441,7 @@ git commit -m "feat(backend): init FastAPI app with health endpoint and config"
 
 ```json
 {
-  "name": "pi-cluster-frontend",
+  "name": "pi-swarm-frontend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -537,7 +537,7 @@ export default defineConfig({
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pi Cluster LLM</title>
+    <title>pi-swarm</title>
   </head>
   <body>
     <div id="app"></div>
@@ -604,7 +604,7 @@ export default router
 <template>
   <div class="app-layout">
     <aside class="sidebar">
-      <h1 class="logo">🖥 Pi Cluster</h1>
+      <h1 class="logo">🖥 pi-swarm</h1>
       <nav>
         <router-link to="/">📊 总览</router-link>
         <!-- 后续迭代加入更多导航项 -->
@@ -711,7 +711,7 @@ git commit -m "feat(frontend): init Vue 3 + TypeScript + Vite project with route
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: pi-cluster
+  name: pi-swarm
 ```
 
 - [ ] **Step 2: 创建 k3s/base/ollama-daemonset.yaml**
@@ -721,7 +721,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: ollama
-  namespace: pi-cluster
+  namespace: pi-swarm
   labels:
     app: ollama
 spec:
@@ -782,7 +782,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ollama
-  namespace: pi-cluster
+  namespace: pi-swarm
   labels:
     app: ollama
 spec:
@@ -819,7 +819,7 @@ git commit -m "feat(k3s): add namespace, ollama DaemonSet and Service manifests"
 
 set -euo pipefail
 
-echo "=== Pi Cluster LLM — WSL2 环境初始化 ==="
+echo "=== pi-swarm — WSL2 环境初始化 ==="
 
 # 1. 更新系统
 echo "[1/5] 更新系统包..."
@@ -1269,7 +1269,7 @@ class NodeService:
         if not k8s_node:
             return None
         pods = self.k8s.list_pods(
-            namespace="pi-cluster",
+            namespace="pi-swarm",
             label_selector=f"app=ollama",
         )
         node_pods = [p for p in pods if p["node"] == name]
@@ -2851,7 +2851,7 @@ from pi_cli.commands import nodes, models, inference
 
 app = typer.Typer(
     name="k3s-pi",
-    help="Pi Cluster LLM 集群管理命令行工具",
+    help="pi-swarm 集群管理命令行工具",
     no_args_is_help=True,
 )
 
@@ -2879,7 +2879,7 @@ def status():
 
     online = sum(1 for n in nodes_list if n["status"] == "online")
 
-    console.print(f"\n[bold]🖥 Pi Cluster LLM[/bold]")
+    console.print(f"\n[bold]🖥 pi-swarm[/bold]")
     console.print(f"节点: {len(nodes_list)} 总数 / {online} 在线\n")
 
     table = Table(title="节点列表")
@@ -3052,7 +3052,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: pi-cluster
+  namespace: pi-swarm
 data:
   prometheus.yml: |
     global:
@@ -3071,7 +3071,7 @@ data:
         kubernetes_sd_configs:
           - role: pod
             namespaces:
-              names: [pi-cluster]
+              names: [pi-swarm]
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_label_app]
             regex: ollama
@@ -3090,7 +3090,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  namespace: pi-cluster
+  namespace: pi-swarm
 spec:
   replicas: 1
   selector:
@@ -3125,7 +3125,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: pi-cluster
+  namespace: pi-swarm
 spec:
   replicas: 1
   selector:
@@ -3151,7 +3151,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  namespace: pi-cluster
+  namespace: pi-swarm
 spec:
   type: NodePort
   ports:
@@ -3184,7 +3184,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loki
-  namespace: pi-cluster
+  namespace: pi-swarm
 spec:
   replicas: 1
   selector:
@@ -3207,7 +3207,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: loki
-  namespace: pi-cluster
+  namespace: pi-swarm
 spec:
   ports:
     - port: 3100
@@ -3223,7 +3223,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: promtail
-  namespace: pi-cluster
+  namespace: pi-swarm
 spec:
   selector:
     matchLabels:
@@ -3264,7 +3264,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: promtail-config
-  namespace: pi-cluster
+  namespace: pi-swarm
 data:
   config.yml: |
     server:
@@ -3272,7 +3272,7 @@ data:
     positions:
       filename: /tmp/positions.yaml
     clients:
-      - url: http://loki.pi-cluster:3100/loki/api/v1/push
+      - url: http://loki.pi-swarm:3100/loki/api/v1/push
     scrape_configs:
       - job_name: containers
         static_configs:
@@ -3302,7 +3302,7 @@ git commit -m "feat(k3s): add Loki and Promtail for log aggregation"
 - [ ] **Step 1: 创建 docs/architecture.md**
 
 ```markdown
-# Pi Cluster LLM 架构说明
+# pi-swarm 架构说明
 
 ## 快速开始
 
