@@ -1,7 +1,7 @@
 {
   "name": "pi-swarm",
   "version": "0.0.1",
-  "description": "Raspberry Pi cluster management system",
+  "description": "pi-swarm turns your Raspberry Pi cluster into a unified computing platform — manage nodes, deploy LLMs, and distribute workloads across your entire Pi fleet from a single dashboard.",
   "license": "MIT",
   "author": "timgunnar",
   "repository": {
