@@ -1,5 +1,26 @@
+# Local design docs (not published)
 .idea/
 docs/
 CLAUDE.md
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
