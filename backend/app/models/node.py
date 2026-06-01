@@ -2,9 +2,11 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Float, DateTime, Boolean, func
-from sqlalchemy.orm import Mapped, mapped_column
+
+from sqlalchemy import Boolean, DateTime, Float, String, func
 from sqlalchemy.dialects.sqlite import TEXT as SQLiteText
+from sqlalchemy.orm import Mapped, mapped_column
+
 from app.models.base import Base
 
 

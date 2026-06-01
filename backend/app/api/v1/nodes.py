@@ -1,8 +1,10 @@
 import subprocess
+
 from fastapi import APIRouter, Depends, HTTPException
+
 from app.k8s.client import K8sClient
+from app.schemas.node import NodeDetail, NodeJoinRequest, NodeJoinResponse, NodeSummary
 from app.services.node_service import NodeService
-from app.schemas.node import NodeSummary, NodeDetail, NodeJoinRequest, NodeJoinResponse
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 

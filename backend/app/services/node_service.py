@@ -1,5 +1,5 @@
 from app.k8s.client import K8sClient
-from app.schemas.node import NodeSummary, NodeDetail, NodeJoinRequest
+from app.schemas.node import NodeDetail, NodeJoinRequest, NodeSummary
 
 
 class NodeService:

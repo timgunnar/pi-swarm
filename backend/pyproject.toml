@@ -13,18 +13,16 @@ dependencies = [
     "kubernetes>=31.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.24.0",
-    "httpx>=0.28.0",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.8.0",
 ]
 
+[tool.ruff]
+line-length = 120
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
-
-[dependency-groups]
-dev = [
-    "pytest-asyncio>=1.4.0",
-]
+ignore = ["N811"]

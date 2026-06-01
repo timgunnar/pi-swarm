@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1 import inference, models, nodes, system
 from app.core.config import settings
 
 
@@ -24,11 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-from app.api.v1 import nodes, system
-
 app.include_router(nodes.router, prefix="/api/v1")
 app.include_router(system.router, prefix="/api/v1")
+app.include_router(inference.router, prefix="/api/v1")
+app.include_router(models.router, prefix="/api/v1")
 
 
 @app.get("/health")
