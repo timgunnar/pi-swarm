@@ -11,6 +11,9 @@
   "homepage": "https://github.com/timgunnar/pi-swarm#readme",
   "files": [
     "README.md",
+    "README_CN.md",
+    "CHANGELOG.md",
+    "CHANGELOG_CN.md",
     "LICENSE"
   ]
 }
