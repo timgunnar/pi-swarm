@@ -1,0 +1,33 @@
+---
+- name: Initialize Pi node and join K3s cluster
+  hosts: all
+  vars:
+    pi_name: "{{ ansible_host | replace('.', '-') }}"
+    pi_labels: "pi-role=inference"
+    k3s_server_url: "https://{{ lookup('env', 'K3S_SERVER_IP') }}:6443"
+    k3s_token: "{{ lookup('env', 'K3S_TOKEN') }}"
+
+  tasks:
+    - name: Run node preparation
+      import_role:
+        name: node-prep
+
+    - name: Install K3s Agent
+      shell: |
+        curl -sfL https://get.k3s.io | K3S_URL="{{ k3s_server_url }}" \
+          K3S_TOKEN="{{ k3s_token }}" \
+          INSTALL_K3S_EXEC="agent \
+            --node-label {{ pi_labels }} \
+            --node-name {{ pi_name }}" \
+          sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for node
+      pause:
+        seconds: 10
+
+    - name: Verify K3s Agent
+      command: systemctl is-active k3s-agent
+      register: agent_status
+      failed_when: agent_status.stdout != "active"

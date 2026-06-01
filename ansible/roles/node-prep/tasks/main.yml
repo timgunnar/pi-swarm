@@ -1,0 +1,44 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install required packages
+  apt:
+    name:
+      - curl
+      - wget
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - vim
+      - htop
+      - iotop
+    state: present
+
+- name: Disable swap
+  command: dphys-swapfile swapoff
+  ignore_errors: yes
+
+- name: Disable swap permanently
+  command: dphys-swapfile uninstall
+  ignore_errors: yes
+
+- name: Enable cgroup memory
+  lineinfile:
+    path: /boot/firmware/cmdline.txt
+    regexp: 'cgroup_memory=1 cgroup_enable=memory'
+    line: "{{ lookup('file', '/boot/firmware/cmdline.txt') }} cgroup_memory=1 cgroup_enable=memory"
+    backrefs: yes
+  notify: reboot
+
+- name: Set hostname
+  hostname:
+    name: "{{ pi_name | default(inventory_hostname) }}"
+
+- name: Add hostname to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    regexp: '127.0.1.1'
+    line: "127.0.1.1 {{ pi_name | default(inventory_hostname) }}"

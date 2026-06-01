@@ -1,0 +1,28 @@
+---
+- name: Remove Pi node from K3s cluster
+  hosts: all
+
+  tasks:
+    - name: Stop K3s Agent
+      systemd:
+        name: k3s-agent
+        state: stopped
+      ignore_errors: yes
+
+    - name: Uninstall K3s Agent
+      command: /usr/local/bin/k3s-agent-uninstall.sh
+      ignore_errors: yes
+
+    - name: Clean K3s data
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/rancher/k3s
+        - /var/lib/kubelet
+        - /etc/rancher
+      ignore_errors: yes
+
+    - name: Reboot
+      reboot:
+        msg: "Rebooting after K3s removal"

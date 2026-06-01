@@ -25,9 +25,10 @@ app.add_middleware(
 )
 
 
-from app.api.v1 import nodes
+from app.api.v1 import nodes, system
 
 app.include_router(nodes.router, prefix="/api/v1")
+app.include_router(system.router, prefix="/api/v1")
 
 
 @app.get("/health")
