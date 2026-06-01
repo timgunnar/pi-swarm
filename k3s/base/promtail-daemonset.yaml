@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: pi-swarm
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      nodeSelector:
+        pi-role: inference
+      containers:
+        - name: promtail
+          image: grafana/promtail:3.3.0
+          args:
+            - -config.file=/etc/promtail/config.yml
+          ports:
+            - containerPort: 9080
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: docker
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: docker
+          hostPath:
+            path: /var/lib/docker/containers
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: pi-swarm
+data:
+  config.yml: |
+    server:
+      http_listen_port: 9080
+
+    positions:
+      filename: /tmp/positions.yaml
+
+    clients:
+      - url: http://loki.pi-swarm:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: containers
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: container-logs
+              __path__: /var/log/containers/*.log
