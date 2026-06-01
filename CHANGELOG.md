@@ -2,6 +2,27 @@
 
 [English](./CHANGELOG.md) | [中文](./CHANGELOG_CN.md)
 
+## v0.0.2
+
+### Key Upgrades
+
+- **Inference engine abstraction** — `InferenceEngine` base class with Ollama implementation, pluggable vLLM/llama.cpp in the future
+- **Scheduling strategies** — Round-robin, least-connection, random with pluggable strategy pattern
+- **Inference API** — OpenAI-compatible `/v1/inference/chat/completions` with SSE streaming and model deploy endpoints
+- **Model management API** — List deployed models across all Pi nodes, deploy models with one command
+- **Dashboard (5 pages)** — Overview, node management, node detail, model management, logs/settings placeholders
+- **NodeCard component** — Real-time CPU/MEM/TEMP bars, status indicators, label tags
+- **CLI tool (k3s-pi)** — `node list/add/drain`, `model list/deploy`, `infer chat`, `status` commands with rich terminal output
+- **Observability stack** — Prometheus + Grafana + Loki + Promtail manifests for metrics, dashboards, and log aggregation
+- **Benchmark script** — `scripts/bench-inference.sh` for inference latency testing
+- **CI fix** — Import order linting pass, dev dependency group migration
+
+### Tests
+
+- Backend health endpoint test (1 test, passing)
+- `ruff check` — all checks passed
+- `vue-tsc --noEmit` — type-check passed
+
 ## v0.0.1
 
 ### Key Upgrades
